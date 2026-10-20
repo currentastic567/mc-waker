@@ -6,50 +6,67 @@ const ACCOUNTS = [
 ];
 
 let currentBackendAddress = "127.0.0.1:25565";
+let tailscaleAddress = "none";
 
 async function wakeAccount(acc) {
-  if (!acc.token || !acc.name) return false;
-  const res = await fetch(`https://api.github.com/user/codespaces/${acc.name}/start`, {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': `Bearer ${acc.token}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'MC-Cluster-Waker'
+  if (!acc.token) return { ok: false, msg: `${acc.label}: Missing token` };
+  const headers = {
+    'Accept': 'application/vnd.github+json',
+    'Authorization': `Bearer ${acc.token}`,
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'MC-Cluster-Waker'
+  };
+
+  try {
+    let csName = acc.name;
+    const listRes = await fetch('https://api.github.com/user/codespaces', { headers });
+    const listData = await listRes.json();
+    if (listRes.ok && listData.codespaces && listData.codespaces.length > 0) {
+      csName = listData.codespaces[0].name;
     }
-  });
-  return res.ok;
+    if (!csName) return { ok: false, msg: `${acc.label}: No Codespace found` };
+
+    const res = await fetch(`https://api.github.com/user/codespaces/${csName}/start`, {
+      method: 'POST',
+      headers
+    });
+    return { ok: res.ok, msg: res.ok ? `Waking ${csName} on ${acc.label}` : `${acc.label} error ${res.status}` };
+  } catch (e) {
+    return { ok: false, msg: e.message };
+  }
 }
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
-  // 1. Codespace calls /set-ip?addr=bore.pub:12345 when it boots
   if (url.pathname === '/set-ip') {
     const addr = url.searchParams.get('addr');
+    const ts = url.searchParams.get('ts');
     if (addr) currentBackendAddress = addr.trim();
-    res.writeHead(200);
-    return res.end(`Saved backend address: ${currentBackendAddress}`);
+    if (ts) tailscaleAddress = ts.trim();
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    return res.end(`Updated! Public Tunnel: ${currentBackendAddress} | Tailscale: ${tailscaleAddress}\n`);
   }
 
-  // 2. FreeGameHost checks /get-ip to update velocity.toml automatically
   if (url.pathname === '/get-ip') {
-    res.writeHead(200);
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
     return res.end(currentBackendAddress);
   }
 
-  // 3. Wake trigger
   if (url.pathname === '/wake') {
+    const logs = [];
     for (const acc of ACCOUNTS) {
-      if (await wakeAccount(acc)) {
-        res.writeHead(200);
-        return res.end(`Waking 8GB Server on ${acc.label}`);
+      const r = await wakeAccount(acc);
+      logs.push(r.msg);
+      if (r.ok) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        return res.end(logs.join('\n'));
       }
     }
-    res.writeHead(500);
-    return res.end("Failed to wake either account.");
+    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    return res.end("Failed:\n" + logs.join('\n'));
   }
 
-  res.writeHead(200);
-  res.end(`Waker Online! Current Backend: ${currentBackendAddress}`);
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end(`Waker Online!\nVelocity Tunnel IP: ${currentBackendAddress}\nTailscale IP: ${tailscaleAddress}\n`);
 }).listen(process.env.PORT || 3000);
