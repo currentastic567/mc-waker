@@ -45,7 +45,7 @@ http.createServer(async (req, res) => {
     if (addr) currentBackendAddress = addr.trim();
     if (ts) tailscaleAddress = ts.trim();
     res.writeHead(200, { 'Content-Type': 'text/plain' });
-    return res.end(`Updated! Public Tunnel: ${currentBackendAddress} | Tailscale: ${tailscaleAddress}\n`);
+    return res.end(`Saved backend address: ${currentBackendAddress}\n`);
   }
 
   if (url.pathname === '/get-ip') {
